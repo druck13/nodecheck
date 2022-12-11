@@ -2,9 +2,9 @@
 #
 # Python screening exercise
 #
-#  Node 1: hotsname=n1 ipaddr=192.168.0.1/24
-#  Node 2: hotsname=n1 ipaddr=192.168.0.2/24
-#  Node 3: hotsname=n1 ipaddr=192.168.0.3/24
+#  Node 1: hostname=n1 ipaddr=192.168.0.1/24
+#  Node 2: hostname=n2 ipaddr=192.168.0.2/24
+#  Node 3: hostname=n3 ipaddr=192.168.0.3/24
 #
 # Write code that will perform the following when executed on node 3
 #    1. Retrieve a list of file objects in /mnt/share1/test on node 1 and node2 in parallel.
@@ -176,15 +176,15 @@ class NodeChecker:
             except KeyError:
                 continue
 
-            meta0 = file0["metadata"]
-            meta1 = file1["metadata"]
+            metadata0 = file0["metadata"]
+            metadata1 = file1["metadata"]
 
             # check each item of metadata, except device and inode ids, and link count
             # which don't indicate a difference in contents
             for i, st_name, print_fn in self.STAT_CHECKS:
-                if meta0[i] != meta1[i]:
+                if metadata0[i] != metadata1[i]:
                     print("%s : %s different: %s != %s" % \
-                      (filename, st_name, print_fn(meta0[i]), print_fn(meta1[i])))
+                      (filename, st_name, print_fn(metadata0[i]), print_fn(metadata1[i])))
                     matching = False
 
             # check the file has digests are identical
