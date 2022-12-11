@@ -108,16 +108,21 @@ class NodeChecker:
 
             for filename in filenames:
                 filepath = os.path.join(dirpath, filename)
+                metadata = os.stat(filepath)
                 try:
-                    # file key is relative to the path we are given
-                    files[os.path.relpath(filepath, node_path)] = \
-                        {
-                            "metadata" : os.stat(filepath),
-                            "digest"   : self.get_digest(filepath),
-                        }
+                    digest = self.get_digest(filepath),
                 except OSError as e:
+                    # will fail if file permissions inaccessible
+                    digest = None
                     print(str(e), file=sys.stderr)
                     self.errors += 1
+
+                # file key is relative to the path we are given
+                files[os.path.relpath(filepath, node_path)] = \
+                    {
+                        "metadata" : metadata,
+                        "digest"   : digest,
+                    }
 
         return files, self.errors
 
@@ -170,20 +175,22 @@ class NodeChecker:
                 file1 = node_data[1][0][filename]
             except KeyError:
                 continue
+
             meta0 = file0["metadata"]
             meta1 = file1["metadata"]
 
             # check each item of metadata, except device and inode ids, and link count
             # which don't indicate a difference in contents
             for i, st_name, print_fn in self.STAT_CHECKS:
-                if st_name and meta0[i] != meta1[i]:
-                    print("%s: %s different: %s != %s" % \
-                          (filename, st_name, print_fn(meta0[i]), print_fn(meta1[i])))
+                if meta0[i] != meta1[i]:
+                    print("%s : %s different: %s != %s" % \
+                      (filename, st_name, print_fn(meta0[i]), print_fn(meta1[i])))
                     matching = False
 
             # check the file has digests are identical
+            # note both could be none if files inaccessible
             if file0["digest"] != file1["digest"]:
-                print("%s :%s hashes are different" % (filename, self.algorithm))
+                print("%s : %s hashes are different" % (filename, self.algorithm))
                 matching = False
 
         return matching
