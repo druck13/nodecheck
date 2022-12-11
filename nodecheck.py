@@ -16,21 +16,36 @@
 # Notes:
 # Could use dircmp, but where would the fun be in that!
 #
-# The program walks each node in parallel as instructed which could result in a lot of data being generated.
-# I would walk the filing systems handing off each pair of directories to a thread pool to check the contents
+# The program walks each node in parallel (as instructed) which could result in a lot of data being generated.
+# I would walk the filing systems handing off each pair of directories to a thread pool to check the contents.
 # This may also extract extra parallelism
 
 import os
 import sys
+import time
 import argparse
 import hashlib
 from multiprocessing import Pool as ThreadPool
 
 
-HASHING_ALG = "SHA1"
-
-
 class NodeChecker:
+    # constants
+    HASHING_ALG = "SHA1"
+    STAT_CHECKS = \
+    [
+        # index, name,              print function
+        (0,     "mode",             lambda value: oct(value)[2:]),
+       #(1,     "inode",            str),                           # ignore inode
+       #(2,     "device",           lambda value: hex(value)[2:]),  # ignore device
+       #(3,     "link count",       str),                           # ignore link count
+        (4,     "user id",          str),
+        (5,     "group id",         str),
+        (6,     "size",             str),
+       #(7,     "access time",      time.ctime),                    # ignore access time
+        (8,     "modified time",    time.ctime),
+       #(9,     "creation time",    time.ctime),                    # ignore creation time while testing
+    ]
+
     def __init__(self, algorithm, progress):
         """
         Class to check two filing system nodes have identical contents.
@@ -92,7 +107,7 @@ class NodeChecker:
                             "digest"   : self.get_digest(filepath),
                         }
                 except OSError as e:
-                    sys.stderr.write("Error reading %r: %s" % (filepath, str(e)))
+                    print("Error reading %r: %s" % (filepath, str(e)), file=sys.stderr)
 
         return files
 
@@ -119,13 +134,13 @@ class NodeChecker:
 
         for i, only_on in enumerate(only_ons):
             if only_on:
-                print("Files only on %s:- %s\n" % (paths[i], "\n".join(only_on)))
+                print("Files only on %s:\n%s" % (paths[i], "\n".join(only_on)))
 
         # early termination as things obviously different, could have option to continue at this point
         if any(only_ons):
             return False
 
-        # flag to indicate everything matachs until we know otherwise
+        # flag to indicate everything matches until we know otherwise
         matching = True
 
         # second check of metadata and digests
@@ -144,14 +159,15 @@ class NodeChecker:
 
             # check each item of metadata, except device and inode ids, and link count
             # which don't indicate a difference in contents
-            for i, st_name in enumerate(["mode", None, None, None, "uid", "gid", "size", "atime", "mtime", "ctime"]):
+            for i, st_name, print_fn in self.STAT_CHECKS:
                 if st_name and meta0[i] != meta1[i]:
-                    print("%r metadata different, %s: %s != %s" % (filename, st_name, meta0[i], meta1[i]))
+                    print("%s: %s different: %s != %s" % \
+                          (filename, st_name, print_fn(meta0[i]), print_fn(meta1[i])))
                     matching = False
 
             # check the file has digests are identical
             if file0["digest"] != file1["digest"]:
-                print("%r %s hashes are different" % (filename, self.algorithm))
+                print("%s :%s hashes are different" % (filename, self.algorithm))
                 matching = False
 
         return matching
@@ -159,21 +175,21 @@ class NodeChecker:
 
 def main():
     parser = argparse.ArgumentParser(description="Check contents of two filing system nodes are identical")
-    parser.add_argument("-a", "--algorithm", default=HASHING_ALG, help="Hash algorithm (MD5, SHA1, SHA256), default %s" % HASHING_ALG)
-    parser.add_argument("-p", "--progress",  action="store_true", help="Show progress")
-    parser.add_argument("paths",             nargs=2,             help="Paths to examine")
+    parser.add_argument("-a", "--algorithm", default=NodeChecker.HASHING_ALG, help="Hash algorithm (MD5, SHA1, SHA256), default %s" % NodeChecker.HASHING_ALG)
+    parser.add_argument("-p", "--progress",  action="store_true",             help="Show progress")
+    parser.add_argument("path",              nargs=2,                         help="Two paths to check")
     args = parser.parse_args()
 
     errors = 0
-    for path in args.paths:
+    for path in args.path:
         if not os.path.isdir(path):
-            sys.stderr.write("'%s' is not a valid path, has it been mounted?" % path)
+            print("'%s' is not a valid path, has it been mounted?" % path, file=sys.stderr)
     if errors:
         sys.exit(1)
 
     nodechecker = NodeChecker(args.algorithm, args.progress)
-    if not nodechecker.check(args.paths):
-        sys.stderr.write("Nodes differ")
+    if not nodechecker.check(args.path):
+        print("Nodes differ", file=sys.stderr)
         sys.exit(2)
 
 
