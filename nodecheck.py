@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Hitachi Ventura Python screening exercise
+# Python screening exercise
 #
 #  Node 1: hotsname=n1 ipaddr=192.168.0.1/24
 #  Node 2: hotsname=n1 ipaddr=192.168.0.2/24
@@ -58,8 +58,17 @@ class NodeChecker:
         self.algorithm = algorithm
         self.progress  = progress
         self.files     = {}
+        self.errors    = 0
 
     def get_digest(self, filepath):
+        """
+        Calculate the hash of a file using the algorithm passed to the class
+
+        :param filepath: path to the file
+        :type filepath: string
+        :return: has in the form of a hex digest
+        :rtype: string
+        """
         if self.algorithm == "MD5":
             h = hashlib.md5()
         elif self.algorithm == "SHA1":
@@ -86,14 +95,14 @@ class NodeChecker:
 
         :param node_path: path to walk
         :type node_path: string
-        :return: dictionary of file mata and digests, keyed on the relative file path
-        :rtype: dict
+        :return: tuple of dictionary of file mata and digests keyed on the relative file path, and error count
+        :rtype: (dict, int)
         """
         files = {}
 
         # only interested in the root of the path and the filenames,
         # subsequent iterations will walk the subdirectories
-        for dirpath, _, filenames in os.walk(node_path):
+        for dirpath, _, filenames in os.walk(node_path, onerror=self._walk_error):
             if self.progress:
                 print("%s" % dirpath)
 
@@ -107,9 +116,14 @@ class NodeChecker:
                             "digest"   : self.get_digest(filepath),
                         }
                 except OSError as e:
-                    print("Error reading %r: %s" % (filepath, str(e)), file=sys.stderr)
+                    print(str(e), file=sys.stderr)
+                    self.errors += 1
 
-        return files
+        return files, self.errors
+
+    def _walk_error(self, error):
+        print(str(error), file=sys.stderr)
+        self.errors += 1
 
     def check(self, paths):
         """
@@ -123,13 +137,15 @@ class NodeChecker:
             print("Reading directories:")
 
         with ThreadPool(processes=len(paths)) as pool:
-            files_list = pool.map(self.walk_node, paths)
+            node_data = pool.map(self.walk_node, paths)
+
+        self.errors = sum(nd[1] for nd in node_data)
 
         if self.progress:
             print("Checking matching file names")
 
         # first quick check to ensure all files are present in both nodes
-        file_sets = [set(files.keys()) for files in files_list]
+        file_sets = [set(nd[0].keys()) for nd in node_data]
         only_ons  = [file_sets[0] - file_sets[1], file_sets[1] - file_sets[0]]
 
         for i, only_on in enumerate(only_ons):
@@ -147,11 +163,11 @@ class NodeChecker:
         if self.progress:
             print("Checking file metadata and hashes")
 
-        for filename in files_list[0]:
+        for filename in node_data[0][0]:
             # should no key errors as we are currently terminating if files don't match, but handle by continuing
             try:
-                file0 = files_list[0][filename]
-                file1 = files_list[1][filename]
+                file0 = node_data[0][0][filename]
+                file1 = node_data[1][0][filename]
             except KeyError:
                 continue
             meta0 = file0["metadata"]
@@ -188,7 +204,12 @@ def main():
         sys.exit(1)
 
     nodechecker = NodeChecker(args.algorithm, args.progress)
-    if not nodechecker.check(args.path):
+    if nodechecker.check(args.path):
+        if nodechecker.errors:
+            print("Nodes appear to match, but %d errors were encountered" % nodechecker.errors)
+        else:
+            print("Nodes match")
+    else:
         print("Nodes differ", file=sys.stderr)
         sys.exit(2)
 
