@@ -19,12 +19,13 @@
 # The program walks each node in parallel (as instructed) which could result in a lot of data being generated.
 # I would walk the filing systems handing off each pair of directories to a thread pool to check the contents.
 # This may also extract extra parallelism
-
+import datetime
 import os
 import sys
 import time
 import argparse
 import hashlib
+import subprocess
 from multiprocessing import Pool as ThreadPool
 
 
@@ -62,7 +63,7 @@ class NodeChecker:
 
     def get_digest(self, filepath):
         """
-        Calculate the hash of a file using the algorithm passed to the class
+        Calculate the hash of a file using the algorithm passed to the class.
 
         :param filepath: path to the file
         :type filepath: string
@@ -88,7 +89,11 @@ class NodeChecker:
 
         return h.hexdigest()
 
-    def walk_node(self, node_path):
+    def _walk_error(self, error):
+        print(str(error), file=sys.stderr)
+        self.errors += 1
+
+    def walk_mounted_node(self, node_path):
         """
         Discover all files under the given path and retrieve metadata from os\.stat
         and file hash using the algorithm passed to the class at initialisation.
@@ -126,9 +131,99 @@ class NodeChecker:
 
         return files, self.errors
 
-    def _walk_error(self, error):
-        print(str(error), file=sys.stderr)
-        self.errors += 1
+
+    def walk_ssh_node(self, node_path):
+        """
+        Discover all files under the given path and retrieve metadata from os\.stat
+        and file hash using the algorithm passed to the class at initialisation.
+
+        :param node_path: path to walk in the form of host:path
+        :type node_path: string
+        :return: tuple of dictionary of file mata and digests keyed on the relative file path, and error count
+        :rtype: (dict, int)
+        """
+        host, file_path = node_path.split(":", maxsplit=2)
+
+
+        if self.algorithm == "MD5":
+            hasher = "md5sum"
+        elif self.algorithm == "SHA1":
+            hasher = "sha1sum"
+        elif self.algorithm == "SHA256":
+            hasher = "sh256sum"
+        else:
+            raise ValueError("Invalid algorithm %s" % self.algorithm)
+
+        command  = "find %s -type f -exec stat {} \; -exec %s {} \;" % (file_path, hasher)
+        output   = subprocess.check_output(["ssh", host, command]).decode("utf-8")
+        files    = {}
+        filename = ""
+        dirname  = ""
+        metadata = []
+        digest   = None
+        got_info = False
+
+        # TODO: improve splitting not assuming fixed lengths for some items
+        for line in output.splitlines():
+            if line.startswith("  File:"):
+                parts       = line.split(": ")
+                filename    = parts[1].rstrip()
+                metadata    = [None] * 10
+            elif line.startswith("  Size:"):
+                parts       = line.split()
+                metadata[6] = int(parts[1])
+            elif line.startswith("Access:"):
+                # Either the Access mode or Access time
+                parts       = line.split(": ")
+                if parts[1].startswith("("):
+                    metadata[0] = int(parts[1][1:5], 8)
+                    metadata[4] = int(parts[2][1:6])
+                    metadata[5] = int(parts[3][1:6])
+            elif line.startswith("Modify:"):
+                parts       = line.split(": ")
+                # TODO: do better than chopping out the nanosecond digits which strptime doesn't handle
+                timestamp   = parts[1][:26] + parts[1][-6:]
+                dt          = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f %z")
+                metadata[8] = time.mktime(dt.timetuple())
+            elif line.startswith(hasher+": "):
+                # hasher error
+                parts       = line.split(": ")
+                print(parts[1], file=sys.stderr)
+                self.errors += 1
+                got_info    = True
+            elif line.rstrip().split()[1] == filename:
+                digest      = line.split()[0]
+                got_info    = True
+
+            if got_info:
+                files[os.path.relpath(filename, file_path)] = \
+                    {
+                        "metadata" : metadata,
+                        "digest"   : digest,
+                    }
+                got_info = False
+                if self.progress:
+                    newdir = os.path.dirname(filename)
+                    if newdir != dirname:
+                        print(newdir)
+                        dirname = newdir
+
+        return files, self.errors
+
+    def walk_node(self, node_path):
+        """
+        Discover all files under the given path and retrieve metadata from os\.stat
+        and file hash using the algorithm passed to the class at initialisation.
+
+        :param node_path: path to walk
+        :type node_path: string
+        :return: tuple of dictionary of file mata and digests keyed on the relative file path, and error count
+        :rtype: (dict, int)
+        """
+        if node_path.find(":") >= 0:
+            return self.walk_ssh_node(node_path)
+
+        return self.walk_mounted_node(node_path)
 
     def check(self, paths):
         """
@@ -136,7 +231,6 @@ class NodeChecker:
         :return: True if identical
         :rtype: bool
         """
-
         # Read file information for each node in parallel
         if self.progress:
             print("Reading directories:")
@@ -205,7 +299,7 @@ def main():
 
     errors = 0
     for path in args.path:
-        if not os.path.isdir(path):
+        if ":" not in path and not os.path.isdir(path):
             print("'%s' is not a valid path, has it been mounted?" % path, file=sys.stderr)
     if errors:
         sys.exit(1)

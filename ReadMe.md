@@ -1,5 +1,5 @@
-nodecheck
-=========
+nodecheck V2
+============
 
 Purpose
 -------
@@ -16,7 +16,10 @@ Running
 -------
 Mount the two filing system nodes on the machine.
 
-    python3 nodecheck.py <first mount path> <second mount path>
+    python3 nodecheck.py <first path> <second path>
+
+The paths can either be the mount points of the filing system nodes, or `host:path` in order to use ssh to access
+the nodes. SSH keys must be shared to allow this, as password entry is not supported.
 
 The program will run and report if two nodes are different, indential, or appear identical by errors such as
 insuffucient permissions prevented the reading of one or more files or directories.
@@ -69,13 +72,14 @@ performance. See the ToDo section below for possible mitigations.
 
 History
 -------
-* Version 1.0
+* Version 1
   * Initial release
+* Version 2
+  * Mountless operation - alternative access the nodes via SSH
 
 ToDo
 ----
 * Unit testing - Implement unit tests
 * Robustness   - Investigate further errors which may be encountered when walking the filing systems
-* Mountless operation - alternative access the nodes via SSH
 * Reduce memory usage - walk both filing system nodes and pass each pair of directories to
 a thread pool to read metadata and hashes, and compare.
