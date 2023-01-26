@@ -95,7 +95,7 @@ class NodeChecker:
 
     def walk_mounted_node(self, node_path):
         """
-        Discover all files under the given path and retrieve metadata from os\.stat
+        Discover all files under the given path and retrieve metadata from os.stat
         and file hash using the algorithm passed to the class at initialisation.
 
         :param node_path: path to walk
@@ -115,7 +115,7 @@ class NodeChecker:
                 filepath = os.path.join(dirpath, filename)
                 metadata = os.stat(filepath)
                 try:
-                    digest = self.get_digest(filepath),
+                    digest = self.get_digest(filepath)[0]
                 except OSError as e:
                     # will fail if file permissions inaccessible
                     digest = None
@@ -134,7 +134,7 @@ class NodeChecker:
 
     def walk_ssh_node(self, node_path):
         """
-        Discover all files under the given path and retrieve metadata from os\.stat
+        Discover all files under the given path and retrieve metadata from os.stat
         and file hash using the algorithm passed to the class at initialisation.
 
         :param node_path: path to walk in the form of host:path
@@ -154,7 +154,7 @@ class NodeChecker:
         else:
             raise ValueError("Invalid algorithm %s" % self.algorithm)
 
-        command  = "find %s -type f -exec stat {} \; -exec %s {} \;" % (file_path, hasher)
+        command  = r"find %s -type f -exec stat {} \; -exec %s {} \;" % (file_path, hasher)
         output   = subprocess.check_output(["ssh", host, command]).decode("utf-8")
         files    = {}
         filename = ""
@@ -212,7 +212,7 @@ class NodeChecker:
 
     def walk_node(self, node_path):
         """
-        Discover all files under the given path and retrieve metadata from os\.stat
+        Discover all files under the given path and retrieve metadata from os.stat
         and file hash using the algorithm passed to the class at initialisation.
 
         :param node_path: path to walk
