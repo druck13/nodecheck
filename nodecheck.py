@@ -142,7 +142,7 @@ class NodeChecker:
         :return: tuple of dictionary of file mata and digests keyed on the relative file path, and error count
         :rtype: (dict, int)
         """
-        host, file_path = node_path.split(":", maxsplit=2)
+        host, file_path = node_path.split(":", maxsplit=1)
 
 
         if self.algorithm == "MD5":
